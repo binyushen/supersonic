@@ -77,7 +77,10 @@ class LocalFileImpl : public File {
   virtual int64 Write(const void* buffer, uint64 length);
   virtual bool Seek(int64 position);
   virtual bool eof();
-
+	
+	// shenbinyu add
+	virtual int64 FileSize();
+	virtual int64 Flush();
  protected:
   FILE* internal_file_;
 
@@ -269,6 +272,25 @@ bool LocalFileImpl::Seek(int64 position) {
   return true;
 }
 
+// shenbinyu add
+int64 LocalFileImpl::FileSize() {
+	if(internal_file_ == NULL) {
+		LOG(ERROR) << "Can't get FileSize on an up-open file: " << create_file_name_;
+		return -1;
+	}
+	if(FSEEKO(internal_file_, static_cast<off_t>(0),SEEK_END) != 0) {
+		return -1;
+	}
+	return FTELLO(internal_file_);
+}
+
+int64 LocalFileImpl::Flush() {
+	if(internal_file_ == NULL) {
+		LOG(ERROR) << "Can't Flush on an un-open file: "<< create_file_name_;
+		return -1;
+	}
+	return fflush(internal_file_);
+}
 bool LocalFileImpl::eof() {
   if (internal_file_ == NULL) return true;
   return static_cast<bool>(feof(internal_file_));
