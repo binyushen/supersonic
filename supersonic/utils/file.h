@@ -91,7 +91,9 @@ class File {
 
   // If we're currently at eof.
   virtual bool eof() ABSTRACT;
-
+	
+	virtual int64 FileSize() ABSTRACT;
+	virtual int64 Flush() ABSTRACT;
   // Returns the file name given during File::Create(...) call.
   virtual const string& CreateFileName() { return create_file_name_; }
 
