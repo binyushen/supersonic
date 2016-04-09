@@ -40,11 +40,15 @@ namespace supersonic {using std::string; }
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/proto/supersonic.pb.h"
 
+// shenbinyu add
+#include "supersonic/base/infrastructure/block_util.h"
+
 class StringPiece;
 
 namespace supersonic {
 
-const size_t kMaxArenaBufferSize = 16 * 1024 * 1024;
+// move this definition to block_util.h
+// const size_t kMaxArenaBufferSize = 16 * 1024 * 1024;
 
 // Immutable column content.
 // Knows its type. Currently, does not know its length. (May be revisited).
@@ -177,10 +181,12 @@ class Column {
     CHECK(type_info_ == NULL) << "Column already initialized";
     attribute_ = attribute;
     type_info_ = &GetTypeInfo(attribute_->type());
+		column_piece_vector_.reset(new vector<shared_ptr<ColumnPiece>>());
   }
 
   void CheckInitialized() const {
     DCHECK(type_info_ != NULL) << "Column not initialized";
+		DCHECK(column_piece_vector_.get() != NULL) << "Column Piece vector not initialized";
   }
 
   const Attribute* attribute_;
@@ -188,6 +194,10 @@ class Column {
 
   VariantConstPointer data_;
   bool_const_ptr is_null_;
+
+	// column piece info
+	scoped_ptr<vector<shared_ptr<ColumnPiece>>> column_piece_vector_;
+
   DISALLOW_COPY_AND_ASSIGN(Column);
 };
 
