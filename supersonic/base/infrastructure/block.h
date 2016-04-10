@@ -77,6 +77,12 @@ class Column {
   VariantConstPointer data_plus_offset(rowid_t offset) const {
     return data().offset(offset, type_info());
   }
+	
+	// Fetch data from column piece.
+	VariantConstPointer data_plus_offset_through_column_piece(rowid_t offset) const {
+		CHECK_LE(offset / rowGroupSize, column_piece_vector_->size());
+		return column_piece_vector_->at(offset / rowGroupSize)->data_plus_offset(offset % rowGroupSize);
+	}
 
   // Returns an untyped pointer to the data, plus the the statically known
   // offset. The complier changes the multiplication into a combination of
@@ -118,6 +124,16 @@ class Column {
     return data().as_variable_length();
   }
 
+	// Fetch variable length data from column piece.
+	const StringPiece* variable_length_data_plus_offset_through_column_piece(rowid_t offset) const {
+		// in data_plus_offset_through_column_piece will check this, so it's redundant here.
+		// DCHECK_LE(offset /rowGroupSize, column_piece_vector_->size());
+		DCHECK(type_info().is_variable_length())
+				<< "Type mismatch; ttying to read" << type_info().name() << " as "
+				<< "variable length";
+		return data_plus_offset_through_column_piece(offset).as_variable_length();
+	}
+
   // Returns the is_null vector.
   // Returns NULL for columns that are not nullable. May return NULL for
   // a column that is nullable according to the schema, but happens to have
@@ -130,15 +146,36 @@ class Column {
     return is_null() == NULL ? bool_const_ptr(NULL) : is_null() + offset;
   }
 
+	// Rebuild the column piece vector when this column reseted.
+	bool RebuildColumnPieceVector(const rowcount_t rowcount) {
+		if(rowcount != -1) {
+			CheckInitialized();
+			column_piece_vector_->clear();
+			for(rowcount_t offset = 0; offset < rowcount; offset += rowGroupSize) {
+				if(offset + rowGroupSize < rowcount){
+					column_piece_vector_->push_back(
+						shared_ptr<ColumnPiece>(new ColumnPiece(data_.offset(offset, type_info()), offset, rowGroupSize, type_info())));
+				} else {
+					column_piece_vector_->push_back(	
+					shared_ptr<ColumnPiece>(new ColumnPiece(data_.offset(offset, type_info()), offset, rowcount - rowGroupSize, type_info())));
+				}
+			}
+		} else {
+			for(vector<shared_ptr<ColumnPiece>>::iterator it = column_piece_vector_->begin(); it != column_piece_vector_->end(); it++) {
+				(*it)->Reset(data().offset((*it)->in_memory_offset(), type_info()));
+			}
+		}
+	}
   // Updates the column to point to a new place.
   // Ownership of data and is_null stays with the callee.
-  void Reset(VariantConstPointer data, bool_const_ptr is_null) {
+  void Reset(VariantConstPointer data, bool_const_ptr is_null, const rowcount_t rowcount = -1) {
     CheckInitialized();
     DCHECK(is_null == NULL || attribute().is_nullable())
         << "Attempt to use is_null vector for a non-nullable attribute "
         << "'" << attribute().name() << "'";
     data_ = data;
     is_null_ = is_null;
+		RebuildColumnPieceVector(rowcount);
   }
 
   // Updates the column to point to a new place, the same as pointed to by the
@@ -148,7 +185,11 @@ class Column {
     DCHECK_EQ(type_info().type(), other.type_info().type())
         << "Type mismatch; trying to reset " << type_info().name() << " from "
         << other.type_info().name();
-    Reset(other.data(), other.is_null());
+    // Reset(other.data(), other.is_null());
+		data_ = other.data();
+		is_null_ = other.is_null();
+		vector<shared_ptr<ColumnPiece>>* tmpvector = new vector<shared_ptr<ColumnPiece>>(other.column_piece_vector());
+		column_piece_vector_.reset(tmpvector);
   }
 
   // Updates the column to point to a new place, as pointed to by the specified
@@ -158,7 +199,26 @@ class Column {
     DCHECK_EQ(type_info().type(), other.type_info().type())
         << "Type mismatch; trying to reset " << type_info().name() << " from "
         << other.type_info().name();
-    Reset(other.data_plus_offset(offset), other.is_null_plus_offset(offset));
+    DCHECK_EQ(offset % rowGroupSize, 0)
+				<< "in ResetFromPlusOffset offset % rowGroupSize != 0";
+		// Reset(other.data_plus_offset(offset), other.is_null_plus_offset(offset));
+		
+		// the data offset may be not right(need review)
+		data_ = other.data_plus_offset(offset);
+		is_null_ = other.is_null_plus_offset(offset);
+		vector<shared_ptr<ColumnPiece>>* tmpvector = new vector<shared_ptr<ColumnPiece>>();
+		const vector<shared_ptr<ColumnPiece>>& other_tmp_vector = other.column_piece_vector();
+		for(int i = offset / rowGroupSize; i < other_tmp_vector.size(); i++) {
+			tmpvector->push_back(shared_ptr<ColumnPiece>(
+					new ColumnPiece(
+							*(other_tmp_vector[i]),
+							other_tmp_vector[i]->data(),
+							other_tmp_vector[i]->in_memory_offset() - other_tmp_vector[offset / rowGroupSize]->in_memory_offset(),
+							other_tmp_vector[i]->offset() - offset,
+							other_tmp_vector[i]->storage_type(),
+							other_tmp_vector[i]->type_info())));
+		}
+		column_piece_vector_.reset(tmpvector);
   }
 
   // Resets only the is_null vector. If the column is not_nullable, does
@@ -169,12 +229,71 @@ class Column {
     CheckInitialized();
     if (attribute().is_nullable()) is_null_ = is_null;
   }
+	
+	// Prepare data, when data is stored in disk, load it to memory
+	VariantConstPointer PrepareData(const rowcount_t offset) const {
+		DCHECK_EQ(offset % rowGroupSize, 0) << "in PrepareData offset % rowGroupSize != 0";
+		column_piece_vector_->at(offset / rowGroupSize)->PrepareData();
+		return column_piece_vector_->at(offset / rowGroupSize)->data();
+	}
+	
+	// Get the column piece by the offset
+	const ColumnPiece& column_piece(const rowcount_t offset) {
+		DCHECK_LE(offset / rowGroupSize, column_piece_vector_->size()) 
+			<< "in column_piece offset out of column_piece_vector_->size; offset = "<<offset
+			<< " column_piece_vector_.size() =  " << column_piece_vector_->size();
+		return *(column_piece_vector_->at(offset / rowGroupSize));
+	}
 
+	// Append a column piece to the column_piece_vector_
+	void AppendColumnPiece(const ColumnPiece& column_piece,
+			VariantConstPointer data_in_memory,
+			const rowcount_t in_memory_offset,
+			const rowcount_t offset,
+			const StorageType storage_type,
+			const TypeInfo& type_info) {
+			if(column_piece_vector_->size() <= offset / rowGroupSize) {
+				column_piece_vector_->push_back(shared_ptr<ColumnPiece>(
+					new ColumnPiece(column_piece, data_in_memory, in_memory_offset, offset, storage_type, type_info)));
+			} else {
+				column_piece_vector_->erase(column_piece_vector_->begin() + offset / rowGroupSize);
+				column_piece_vector_->insert(column_piece_vector_->begin() + offset / rowGroupSize,
+					shared_ptr<ColumnPiece>(new ColumnPiece(column_piece, data_in_memory, in_memory_offset, offset, storage_type, type_info)));
+			}
+			return;
+	}
+
+	// Print the column_piece_vector_ info
+	void PrintColumnPiecesInfo(rowcount_t row_count) const {
+		std::cout<<"Column name " << this->attribute().name()<<" type "<< type_info().name()<<std::endl;
+		for(rowcount_t row_index = 0; row_index < row_count; row_index += rowGroupSize) {
+			if(type_info().type() == INT32) {
+				PrintColumnPiece<INT32>(*(column_piece_vector_->at(row_index / rowGroupSize)));
+			} else if(type_info().type() == INT64) {	
+				PrintColumnPiece<INT64>(*(column_piece_vector_->at(row_index / rowGroupSize)));
+			} else if(type_info().type() == DOUBLE) {
+				PrintColumnPiece<DOUBLE>(*(column_piece_vector_->at(row_index / rowGroupSize)));
+			} else if(type_info().type() == STRING) {	
+				PrintColumnPiece<STRING>(*(column_piece_vector_->at(row_index / rowGroupSize)));
+			}
+		}
+		return;
+	}
+	// Get the reference of column_piece_vector_
+	const vector<shared_ptr<ColumnPiece>>& column_piece_vector() const {
+		return *column_piece_vector_;
+	}
  private:
   // Only the view to create an uninitialized Column.
   friend class View;
   Column() : attribute_(NULL), type_info_(NULL), data_(NULL), is_null_(NULL) {}
-
+	
+	// Clear the column piece vector
+	void ClearColumnPieceVector() {
+		if(column_piece_vector_.get() != NULL) {
+			column_piece_vector_->clear();
+		}
+	}
   // Must be called before use, if the no-arg constructor was used to create.
   // Ownership of the attribute remains with the caller.
   void Init(const Attribute* attribute) {
