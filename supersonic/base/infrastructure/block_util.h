@@ -16,7 +16,7 @@ using std::unique_ptr;
 
 namespace supersonic {
 
-	const rowcount_t rowGroupSize = 1024;
+	const rowcount_t rowGroupSize = 32; //1024;
 	const size_t kMaxArenaBufferSize = 16 * 1024 * 1024;
 	// Number for the file name generation.
 	static int64 fileNameNum = 0;

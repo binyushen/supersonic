@@ -42,10 +42,11 @@ namespace supersonic {using std::string; }
 
 // shenbinyu add
 #include "supersonic/base/infrastructure/block_util.h"
-
 class StringPiece;
 
 namespace supersonic {
+
+class SingleSourceProjector;
 
 // move this definition to block_util.h
 // const size_t kMaxArenaBufferSize = 16 * 1024 * 1024;
@@ -157,7 +158,7 @@ class Column {
 						shared_ptr<ColumnPiece>(new ColumnPiece(data_.offset(offset, type_info()), offset, rowGroupSize, type_info())));
 				} else {
 					column_piece_vector_->push_back(	
-					shared_ptr<ColumnPiece>(new ColumnPiece(data_.offset(offset, type_info()), offset, rowcount - rowGroupSize, type_info())));
+					shared_ptr<ColumnPiece>(new ColumnPiece(data_.offset(offset, type_info()), offset, rowcount - offset, type_info())));
 				}
 			}
 		} else {
@@ -324,8 +325,12 @@ class Column {
 // its columns). Provides read/write access.
 class OwnedColumn {
  public:
+ 	// Set in memory data row count.
+	void set_row_count(const rowcount_t rowcount) {
+		row_count_ = rowcount;
+	}
   // Called from the Block's reallocate.
-  bool Reallocate(rowcount_t row_capacity, BufferAllocator* allocator);
+  bool Reallocate(rowcount_t row_capacity, BufferAllocator* allocator, rowcount_t is_null_capacity = -1);
 
   // Returns the read-only view on the data.
   const Column& content() const { return *column_; }
@@ -388,6 +393,17 @@ class OwnedColumn {
   // Returns the arena used by this column, if it is variable-length.
   Arena* arena() { return arena_.get(); }
 
+	void AppendColumnPiece(const ColumnPiece& column_piece,
+			VariantConstPointer data_in_memory,
+			const rowcount_t in_memory_offset,
+			const rowcount_t offset,
+			const StorageType storage_type,
+			const TypeInfo& type_info) {
+		column_->AppendColumnPiece(column_piece, data_in_memory, in_memory_offset, offset, storage_type, type_info);		
+	}
+	bool RebuildColumnPieceVector(const rowcount_t rowcount) {
+		return column_->RebuildColumnPieceVector(rowcount);
+	}
  private:
   // Only the block is to create an uninitialized owned column.
   friend class Block;
@@ -408,6 +424,9 @@ class OwnedColumn {
   bool_array is_null_array_;
   // Holds variable length data. Null for other columns.
   scoped_ptr<Arena> arena_;
+	
+	// In memory data row count
+	rowcount_t row_count_;
 
   DISALLOW_COPY_AND_ASSIGN(OwnedColumn);
 };
@@ -478,7 +497,13 @@ class View {
     DCHECK_LT(column_index, column_count());
     return &columns_[column_index];
   }
-
+	
+	// Clear the column piece vector.
+	void ClearColumnPieceVector() {
+		for(int i = 0; i < column_count(); i++) {
+			mutable_column(i)->ClearColumnPieceVector();
+		}
+	}
   // Resets View's columns from another View. Sets the row_count as well.
   void ResetFrom(const View& other) {
     for (int i = 0; i < schema_.attribute_count(); ++i) {
@@ -511,7 +536,14 @@ class View {
     }
     row_count_ -= (row_count_ < offset ? row_count_ : offset);
   }
-
+	
+	void PrintViewColumnPieceInfo() const {
+		std::cout<<schema().GetHumanReadableSpecification()<<std::endl;
+		for(int i = 0; i < column_count(); i++) {
+			column(i).PrintColumnPiecesInfo(row_count());
+		}
+	}
+	vector<vector<rowcount_t>> ColumnPieceVisitTimes(SingleSourceProjector* key_projector) const;
  private:
   void Init() {
     for (int i = 0; i < schema_.attribute_count(); i++) {
@@ -562,6 +594,7 @@ class Block {
   // attempt to Reallocate again.
   bool Reallocate(rowcount_t new_row_capacity);
 
+	bool Reallocate(rowcount_t new_row_capacity, const vector<rowcount_t>& new_row_capacity_vector);
   // Erases arenas of all variable length columns. Invalidates the data stored
   // in these columns, if any.
   void ResetArenas() {
@@ -594,6 +627,11 @@ class Block {
 
   // Returns the row capacity of the block. Equivalent to view().row_count().
   const rowcount_t row_capacity() const { return view().row_count(); }
+	
+	// Returns the row capacity of each column.
+	const vector<rowcount_t>& in_memory_row_capacity_vector() const {
+		return in_memory_row_capacity_vector_;
+	}
 
   // Returns an immutable reference to the specified view's column.
   const Column& column(size_t column_index) const {
@@ -610,11 +648,20 @@ class Block {
   void set_row_capacity(rowcount_t row_capacity) {
     view_.set_row_count(row_capacity);
   }
+	
+	void set_in_memory_row_capacity_vector(const vector<rowcount_t>& row_capacity_vector) {
+		in_memory_row_capacity_vector_ = row_capacity_vector;
+	}
 
   BufferAllocator* const allocator_;
   scoped_ptr<OwnedColumn[]> columns_;
   View view_;  // Full view on the entire block.
-  DISALLOW_COPY_AND_ASSIGN(Block);
+
+	// If some column pieces is in disk, the length of each column won't be equal.
+	// But the rows we can read from view should be same( = view_.row_count() ).
+	vector<rowcount_t> in_memory_row_capacity_vector_;	
+  
+	DISALLOW_COPY_AND_ASSIGN(Block);
 };
 
 }  // namespace supersonic
