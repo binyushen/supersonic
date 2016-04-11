@@ -372,6 +372,7 @@ namespace supersonic {
 			if(column_piece.storage_type() == MEMORY) {
 				std::cout << "This column piece's offset in memory is: " << column_piece.in_memory_offset() << std::endl;
 			}
+			std::cout << "This column piece's offset is: " << column_piece.offset() << std::endl;
 			std::cout << "This column piece's size is: " << column_piece.size() << std::endl;
 			std::cout << ">>>>>>Data in This Column Piece Begin<<<<<<" << std::endl;
 			for(size_t i = 0; i < column_piece.size(); i ++) {

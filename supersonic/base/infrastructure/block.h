@@ -239,7 +239,7 @@ class Column {
 	}
 	
 	// Get the column piece by the offset
-	const ColumnPiece& column_piece(const rowcount_t offset) {
+	const ColumnPiece& column_piece(const rowcount_t offset) const {
 		DCHECK_LE(offset / rowGroupSize, column_piece_vector_->size()) 
 			<< "in column_piece offset out of column_piece_vector_->size; offset = "<<offset
 			<< " column_piece_vector_.size() =  " << column_piece_vector_->size();
@@ -328,6 +328,11 @@ class OwnedColumn {
  	// Set in memory data row count.
 	void set_row_count(const rowcount_t rowcount) {
 		row_count_ = rowcount;
+	}
+
+	// Return in memory data row count.
+	const rowcount_t row_count() const {
+		return row_count_;
 	}
   // Called from the Block's reallocate.
   bool Reallocate(rowcount_t row_capacity, BufferAllocator* allocator, rowcount_t is_null_capacity = -1);
@@ -423,8 +428,7 @@ class OwnedColumn {
   // Holds info about NULLs in column. Can be NULL for non-null columns.
   bool_array is_null_array_;
   // Holds variable length data. Null for other columns.
-  scoped_ptr<Arena> arena_;
-	
+  scoped_ptr<Arena> arena_;	
 	// In memory data row count
 	rowcount_t row_count_;
 

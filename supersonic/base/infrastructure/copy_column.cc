@@ -279,10 +279,24 @@ rowcount_t ColumnCopierFn(const rowcount_t row_count,
   bool* destination_is_null = GetDestinationIsNull<is_null_copier_type>(
       destination, destination_offset);
   is_null_copier(row_count, source.is_null(), destination_is_null, selection);
-  return data_copier(
-      row_count, source.data().as<type>(),
-      destination->mutable_typed_data<type>() + destination_offset,
-      selection, destination_is_null, destination->arena());
+  rowcount_t copied_data = row_count;
+	rowcount_t exists_row_count = destination->row_count(); 
+	if(SharedStorageType::get() == MEMORY){
+		copied_data =data_copier(
+      	row_count, source.data().as<type>(),
+      	destination->mutable_typed_data<type>() + exists_row_count,
+      	selection, destination_is_null, destination->arena());
+
+				destination->set_row_count(copied_data + exists_row_count);
+	}
+	rowcount_t rc = 0;
+	destination->AppendColumnPiece(source.column_piece(rc),
+							destination->content().data_plus_offset(exists_row_count),
+							exists_row_count,
+							destination_offset,
+							SharedStorageType::get(),
+							destination->content().type_info());
+	return copied_data;
 }
 
 // Helper to resolve run-time options into template specializations.

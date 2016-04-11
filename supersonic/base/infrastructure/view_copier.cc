@@ -86,7 +86,8 @@ rowcount_t BaseViewCopier::Copy(
     const View& input_view,
     const rowid_t* input_row_ids,
     const rowcount_t output_offset,
-    Block* output_block) const {
+    Block* output_block,
+		const vector<StorageType>& output_storage_type) const {
   DCHECK(TupleSchema::AreEqual(source_schema_, input_view.schema(), false))
       << "Expected: " << source_schema_.GetHumanReadableSpecification() << ", "
       << "Got: " << input_view.schema().GetHumanReadableSpecification();
@@ -100,10 +101,14 @@ rowcount_t BaseViewCopier::Copy(
     const Column& input_column = input_view.column(
         projector_ ? projector_->source_attribute_position(i) : i);
     // May decrease rows_copied; perhaps even to zero.
-    rows_copied = column_copiers_[i](
+    SharedStorageType::set(
+			output_storage_type[projector_ ? 
+			projector_->source_attribute_position(i) : i]);
+		rows_copied = column_copiers_[i](
         rows_copied, input_column, input_row_ids, output_offset,
         output_block->mutable_column(i));
-  }
+  	SharedStorageType::Reset();
+	}
   return rows_copied;
 }
 
@@ -111,9 +116,10 @@ rowcount_t ViewCopier::Copy(
     const rowcount_t row_count,
     const View& input_view,
     const rowcount_t output_offset,
-    Block* output_block) const {
+    Block* output_block,
+		const vector<StorageType>& output_storage_type) const {
   return BaseViewCopier::Copy(row_count, input_view, NULL, output_offset,
-                              output_block);
+                              output_block, output_storage_type);
 }
 
 rowcount_t SelectiveViewCopier::Copy(
@@ -121,9 +127,11 @@ rowcount_t SelectiveViewCopier::Copy(
     const View& input_view,
     const rowid_t* input_row_ids,
     const rowcount_t output_offset,
-    Block* output_block) const {
+    Block* output_block,
+		const vector<StorageType>& output_storage_type) const {
   return BaseViewCopier::Copy(row_count, input_view, input_row_ids,
-                              output_offset, output_block);
+                              output_offset, output_block,
+															output_storage_type);
 }
 
 }  // namespace supersonic

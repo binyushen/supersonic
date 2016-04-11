@@ -37,7 +37,8 @@ Table::Table(const TupleSchema& schema, BufferAllocator* buffer_allocator)
     : BasicOperation(),
       block_(new Block(schema, buffer_allocator)),
       view_(schema),
-      view_copier_(schema, true) {
+      view_copier_(schema, true),
+			one_time_reserved_(false) {
   view_.ResetFrom(block_->view());
 }
 
@@ -45,7 +46,8 @@ Table::Table(Block* block)
     : BasicOperation(),
       block_(block),
       view_(block->schema()),
-      view_copier_(block_->schema(), true) {
+      view_copier_(block_->schema(), true),
+			one_time_reserved_(false) {
   view_.ResetFrom(block_->view());
 }
 
@@ -75,6 +77,12 @@ bool Table::SetRowCapacity(rowcount_t row_capacity) {
   return Reallocate(row_capacity);
 }
 
+bool Table::SetRowCapacity(rowcount_t row_capacity, const vector<rowcount_t>& row_capacity_vector) {
+  CHECK_GE(row_capacity, view_.row_count())
+      << "New table capacity must be equal to or exceed current row count";
+  return Reallocate(row_capacity, row_capacity_vector);
+}
+
 bool Table::ReserveRowCapacity(rowcount_t needed_capacity) {
   if (block_->row_capacity() < needed_capacity) {
     // TODO(user): Consider having a conservative allocation also when
@@ -99,6 +107,14 @@ bool Table::ReserveRowCapacity(rowcount_t needed_capacity) {
   }
 }
 
+bool Table::ReserveRowCapacityOneTime(const rowcount_t total_row_capacity, 
+			const vector<rowcount_t>& in_memory_row_capacity) {
+	CHECK_LE(block_->row_capacity(), total_row_capacity);
+	Reallocate(total_row_capacity, in_memory_row_capacity);
+	one_time_reserved_ = true;
+	return row_capacity() >= total_row_capacity;
+}
+
 void Table::SetNull(int col_index, rowid_t row_index) {
   DCHECK_GE(row_index, 0);
   DCHECK_LT(row_index, row_count());
@@ -115,9 +131,30 @@ rowcount_t Table::AppendView(const View& view) {
   rowcount_t rows_to_copy =
       std::min(view.row_count(), block_->row_capacity() - row_count());
   rowcount_t rows_copied =
-      view_copier_.Copy(rows_to_copy, view, row_count(), block_.get());
+      view_copier_.Copy(rows_to_copy, 
+				view, row_count(), 
+				block_.get());
   view_.set_row_count(row_count() + rows_copied);
-  return rows_copied;
+	return rows_copied;
+}
+
+rowcount_t Table::AppendView(const View& view, 
+	const vector<StorageType> storage_type_vector
+	/* = vector<StorageType>(50, MEMORY) */) {
+  // Ensure that the block has sufficient capacity.
+  // If unsuccessful, we'll end up copying less rows (and returning non-zero).
+  //ReserveRowCapacity(row_count() + view.row_count());
+	CHECK_EQ(one_time_reserved_, true);
+  rowcount_t rows_to_copy =
+      std::min(view.row_count(), block_->row_capacity() - row_count());
+  rowcount_t rows_copied =
+      view_copier_.Copy(rows_to_copy, 
+				view, row_count(), 
+				block_.get(), 
+				storage_type_vector);
+  //view_.set_row_count(row_count() + rows_copied);
+  view_.ResetFromSubRange(block_->view(), 0, row_count() + rows_copied);
+	return rows_copied;
 }
 
 FailureOrOwned<Cursor> Table::CreateCursor() const {

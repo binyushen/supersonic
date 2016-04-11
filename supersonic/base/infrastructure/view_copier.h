@@ -22,6 +22,8 @@
 #include <vector>
 using std::vector;
 
+#include "supersonic/base/infrastructure/block_util.h"
+
 #include "supersonic/base/infrastructure/copy_column.h"
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/base/infrastructure/types.h"
@@ -62,7 +64,8 @@ class BaseViewCopier {
       const View& input_view,
       const rowid_t* input_row_ids,
       const rowcount_t output_offset,
-      Block* output_block) const;
+      Block* output_block,
+			const vector<StorageType>& output_storage_type = vector<StorageType>(50, MEMORY)) const;
 
  private:
   void CreateColumnCopiers(const TupleSchema& source_schema,
@@ -102,7 +105,8 @@ class ViewCopier : public BaseViewCopier {
       const rowcount_t row_count,
       const View& input_view,
       const rowcount_t output_offset,
-      Block* output_block) const;
+      Block* output_block,
+			const vector<StorageType>& output_storage_type = vector<StorageType>(50, MEMORY)) const;
 };
 
 // To make copies with a selection vector.
@@ -159,7 +163,8 @@ class SelectiveViewCopier : public BaseViewCopier {
       const View& input_view,
       const rowid_t* input_row_ids,
       const rowcount_t output_offset,
-      Block* output_block) const;
+      Block* output_block,
+			const vector<StorageType>& output_storage_type = vector<StorageType>(50, MEMORY)) const;
 };
 
 }  // namespace supersonic

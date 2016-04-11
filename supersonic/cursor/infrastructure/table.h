@@ -70,6 +70,8 @@ class Table : public BasicOperation {
   // by CreateCursor().
   bool SetRowCapacity(rowcount_t row_capacity);
 
+	bool SetRowCapacity(rowcount_t row_capacity, const vector<rowcount_t>& row_capacity_vector);
+
   // Grows the table, if necessary, to have capacity for at least
   // 'needed_capacity' rows. Analogous to vector::reserve(). Returns true
   // on success, i.e. if the reallocation succeeded or the table already had
@@ -78,6 +80,8 @@ class Table : public BasicOperation {
   // enlarged at least 2x when it needs reallocation.
   bool ReserveRowCapacity(rowcount_t needed_capacity);
 
+	bool ReserveRowCapacityOneTime(rowcount_t total_row_capacity, const vector<rowcount_t>& in_memory_count);
+	
   // Sets the capacity of this table to its current size.
   // Equivalent to SetRowCapacity(row_count()).
   bool Compact() { return Reallocate(row_count()); }
@@ -99,6 +103,9 @@ class Table : public BasicOperation {
   // of rows successfully copied, which can be less than view.row_count() iff
   // OOM occurs.
   rowcount_t AppendView(const View& view);
+  
+	rowcount_t AppendView(const View& view, 
+		const vector<StorageType> storate_type_vector/* = vector<StorageType>(50, MEMORY)*/);
 
   // Appends a new row at the end of the table. On success, returns the index
   // of the newly added row. On failure (due to OOM), returns -1. If failed,
@@ -152,12 +159,30 @@ class Table : public BasicOperation {
     Clear();
     return swapped.release();
   }
+	
+	// When all the data is in memory, this function can be called.
+	void RebuildColumnPieceVector() {
+		for(int column_index = 0; column_index < view_.column_count(); column_index++) {
+			view_.mutable_column(column_index)->RebuildColumnPieceVector(view_.row_count());
+		}
+		return ;
+	}
 
+	void PrintTableInfo() {
+		std::cout << "view_.row_count = " << view_.row_count() << std::endl;
+
+	}
  private:
   template<typename RowReader> friend class TableRowAppender;
 
   bool Reallocate(rowcount_t new_capacity) {
     bool result = block_->Reallocate(new_capacity);
+    view_.ResetFromSubRange(block_->view(), 0, row_count());
+    return result;
+  }
+	
+	bool Reallocate(rowcount_t new_capacity, const vector<rowcount_t>& new_capacity_vector) {
+    bool result = block_->Reallocate(new_capacity, new_capacity_vector);
     view_.ResetFromSubRange(block_->view(), 0, row_count());
     return result;
   }
@@ -168,7 +193,8 @@ class Table : public BasicOperation {
   std::unique_ptr<Block> block_;
   View view_;
   ViewCopier view_copier_;
-  DISALLOW_COPY_AND_ASSIGN(Table);
+ 	bool one_time_reserved_;
+ 	DISALLOW_COPY_AND_ASSIGN(Table);
 };
 
 template<typename RowReader>
