@@ -5,6 +5,7 @@
 using std::vector;
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/infrastructure/types.h"
+#include "supersonic/base/infrastructure/block_util.h"
 namespace supersonic {
 
 	class Optimizer {
