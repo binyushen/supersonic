@@ -1,4 +1,5 @@
-TESTS = test_append_view
+TESTS = test_append_view \
+				test_optimizer
 
 CC = g++
 
@@ -40,6 +41,7 @@ HEADERS = \
 	../supersonic/base/infrastructure/double_buffered_block.h \
 	../supersonic/base/infrastructure/init.h \
 	../supersonic/base/infrastructure/operators.h \
+	../supersonic/base/infrastructure/optimizer.h \
 	../supersonic/base/infrastructure/projector.h \
 	../supersonic/base/infrastructure/tuple_schema.h \
 	../supersonic/base/infrastructure/types.h \
@@ -222,6 +224,7 @@ OBJECTS = \
 	../supersonic/base/infrastructure/block_util.o \
 	../supersonic/base/infrastructure/copy_column.o \
 	../supersonic/base/infrastructure/double_buffered_block.o \
+	../supersonic/base/infrastructure/optimizer.o \
 	../supersonic/base/infrastructure/projector.o \
 	../supersonic/base/infrastructure/tuple_schema.o \
 	../supersonic/base/infrastructure/types.o \
